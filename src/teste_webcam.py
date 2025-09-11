@@ -96,6 +96,14 @@ class LocalEmotionDetector:
             model_selection=0,
             min_detection_confidence=0.5
         )
+
+        self.mp_face_mesh = mp.solutions.face_mesh
+        self.face_mesh = self.mp_face_mesh.FaceMesh(
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+)
         
         print("✅ Sistema inicializado!")
         print(f"📋 Emoções detectáveis: {self.emotion_labels}")
@@ -119,6 +127,20 @@ class LocalEmotionDetector:
                 faces.append((x, y, width, height))
         
         return faces
+    
+    def extract_landmarks(self, image):
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        results = self.face_mesh.process(rgb_image)
+        
+        landmarks = []
+        if results.multi_face_landmarks:
+            for face_landmarks in results.multi_face_landmarks:
+                h, w, _ = image.shape
+                for landmark in face_landmarks.landmark:
+                    x, y = int(landmark.x * w), int(landmark.y * h)
+                    landmarks.append((x, y))
+        
+        return landmarks
     
     def predict_emotion(self, face_image):
         """Prediz emoção de uma face"""
@@ -214,5 +236,6 @@ class LocalEmotionDetector:
         cv2.destroyAllWindows()
         print("✅ Webcam finalizada")
 
-detector = LocalEmotionDetector()
-detector.run_webcam()
+if __name__ == "__main__":
+    detector = LocalEmotionDetector()
+    detector.run_webcam()
