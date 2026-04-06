@@ -1,7 +1,0 @@
-torch 
-torchvision 
-torchaudio 
-opencv-python 
-numpy 
-mediapipe 
-pillow
