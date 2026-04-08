@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
+from .data import row_to_rgb
 from .face_detection import FaceCropper
 
 
@@ -73,14 +74,6 @@ class FaceLandmarkExtractor:
         padded[: arr.shape[0]] = arr
         return padded
 
-
-def _row_to_rgb(row: pd.Series) -> np.ndarray:
-    pixels = np.fromstring(row["pixels"], dtype=np.float32, sep=" ")
-    side = int(np.sqrt(len(pixels)))
-    image = pixels.reshape(side, side).astype(np.uint8)
-    return cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-
-
 def compute_landmarks_for_dataframe(
     dataframe: pd.DataFrame,
     cache_path: Path,
@@ -94,7 +87,7 @@ def compute_landmarks_for_dataframe(
     landmarks = np.zeros((len(dataframe), landmark_dim), dtype=np.float32)
     valid_count = 0
     for idx, (_, row) in enumerate(dataframe.iterrows()):
-        image_rgb = _row_to_rgb(row)
+        image_rgb = row_to_rgb(row)
         if use_face_crop:
             image_rgb = cropper.crop_face(image_rgb)
 

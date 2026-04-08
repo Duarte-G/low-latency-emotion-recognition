@@ -71,3 +71,76 @@ python -m src.emotion_local.cli webcam --checkpoint artifacts/best_emotion_model
 - O recorte por face via MediaPipe pode reduzir throughput. Se quiser medir impacto, use `--disable-face-crop`.
 - O pretreino da EfficientNet tenta usar pesos ImageNet. Se o download falhar, o codigo cai para pesos aleatorios.
 - Cada treino gera uma pasta propria dentro de `results/` com checkpoint, historico, graficos e matriz de confusao.
+
+## Fluxo de Experimentos do TCC
+
+O projeto agora suporta:
+
+- FER-2013 baseline
+- FER-2013 com face crop
+- AffectNet baseline
+- AffectNet com face crop
+- landmarks opcionais do MediaPipe
+- avaliacao no proprio dataset
+- teste cruzado entre FER-2013 e AffectNet
+
+Menu guiado:
+
+```bash
+python -m src.emotion_local.cli wizard
+```
+
+Exemplos diretos:
+
+```bash
+python -m src.emotion_local.cli train --train-dataset fer2013 --test-mode same_dataset --disable-face-crop
+python -m src.emotion_local.cli train --train-dataset fer2013 --test-mode same_dataset
+python -m src.emotion_local.cli train --train-dataset affectnet --test-mode same_dataset --disable-face-crop
+python -m src.emotion_local.cli train --train-dataset affectnet --test-mode same_dataset
+python -m src.emotion_local.cli train --train-dataset fer2013 --test-mode cross_dataset --test-dataset affectnet
+python -m src.emotion_local.cli train --train-dataset fer2013 --test-mode same_dataset --use-landmarks
+```
+
+Estrutura esperada dos datasets:
+
+```text
+dataset/
+  FER-2013/
+    fer2013.csv
+  AffectNet/
+    train/
+    validation/
+```
+
+No AffectNet, `train/` e usado para treino mais validacao interna, enquanto `validation/` vira o teste final padrao.
+
+## Comparacao de Resultados
+
+Depois de executar dois ou mais treinamentos, voce pode consolidar os resultados automaticamente.
+
+Comparar os dois treinos mais recentes:
+
+```bash
+python -m src.emotion_local.cli compare --latest 2 --name comparacao_inicial
+```
+
+Comparar execucoes especificas:
+
+```bash
+python -m src.emotion_local.cli compare --run-dir results\\20260406_220000_fer-2013_self_fer-2013_img-only_facecrop_img224_bs32_ep10_lr1e-04_auto --run-dir results\\20260406_221500_affectnet_self_affectnet_img-only_facecrop_img224_bs32_ep10_lr1e-04_auto --name fer_vs_affectnet
+```
+
+Arquivos gerados:
+
+- `results/comparisons/<timestamp>_<nome>/comparison.csv`: tabela consolidada para abrir no Excel ou usar no TCC
+- `results/comparisons/<timestamp>_<nome>/comparison.json`: dados completos em JSON
+- `results/comparisons/<timestamp>_<nome>/summary.txt`: resumo rapido com ranking por `test_accuracy`
+
+Cada linha da comparacao inclui, entre outros campos:
+
+- dataset de treino e de teste
+- modo de teste (`same_dataset` ou `cross_dataset`)
+- uso de face crop
+- uso de landmarks
+- `val_accuracy`, `val_f1`, `test_accuracy`, `test_f1`
+- metricas por emocao extraidas do `classification_report`

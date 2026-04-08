@@ -12,12 +12,13 @@ from sklearn.metrics import classification_report, confusion_matrix, f1_score
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import DataLoader
 
-from .config import EmotionConfig, TrainConfig
-from .data import load_prepared_splits, prepare_datasets, prepared_splits_exist, save_prepared_splits
+from .config import EmotionConfig, ExperimentConfig, TrainConfig
+from .data import load_prepared_splits, prepare_experiment_datasets, prepared_splits_exist, save_prepared_splits
 from .dataset import EmotionDataset, build_transforms
 from .landmarks import compute_landmarks_for_dataframe
 from .model import EmotionClassifier, resolve_device
 from .results import (
+    build_artifact_name,
     build_run_name,
     create_run_directory,
     save_accuracy_loss_plots,
@@ -30,10 +31,11 @@ from .results import (
 
 def _ensure_landmark_cache(
     datasets: dict[str, object],
+    artifact_dir: Path,
     emotion_config: EmotionConfig,
     train_config: TrainConfig,
 ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
-    landmark_dir = emotion_config.output_dir / "landmarks"
+    landmark_dir = artifact_dir / "landmarks"
     landmark_arrays: dict[str, np.ndarray] = {}
     metadata: dict[str, object] = {}
 
@@ -68,19 +70,28 @@ def _ensure_landmark_cache(
 
 
 def create_dataloaders(
+    experiment_config: ExperimentConfig,
     emotion_config: EmotionConfig,
     train_config: TrainConfig,
-) -> tuple[dict[str, object], dict[str, DataLoader], dict[str, object]]:
-    if prepared_splits_exist(emotion_config.output_dir):
-        datasets = load_prepared_splits(emotion_config.output_dir)
+) -> tuple[dict[str, object], dict[str, DataLoader], dict[str, object], Path]:
+    artifact_dir = emotion_config.output_dir / build_artifact_name(experiment_config, emotion_config)
+    summary_path = artifact_dir / "data_summary.json"
+
+    if prepared_splits_exist(artifact_dir):
+        datasets = load_prepared_splits(artifact_dir)
+        if summary_path.exists():
+            summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+            dataset_metadata = summary_payload.get("metadata", summary_payload)
+        else:
+            dataset_metadata = {}
     else:
-        datasets = prepare_datasets(emotion_config)
-        save_prepared_splits(datasets, emotion_config)
+        datasets, dataset_metadata = prepare_experiment_datasets(experiment_config, emotion_config)
+        save_prepared_splits(datasets, artifact_dir, dataset_metadata)
 
     landmark_arrays = None
     landmark_metadata: dict[str, object] = {}
     if train_config.use_landmarks:
-        landmark_arrays, landmark_metadata = _ensure_landmark_cache(datasets, emotion_config, train_config)
+        landmark_arrays, landmark_metadata = _ensure_landmark_cache(datasets, artifact_dir, emotion_config, train_config)
 
     train_dataset = EmotionDataset(
         datasets["train"],
@@ -119,12 +130,15 @@ def create_dataloaders(
         "val": DataLoader(val_dataset, shuffle=False, **common_loader_args),
         "test": DataLoader(test_dataset, shuffle=False, **common_loader_args),
     }
-    runtime_info = {"landmarks": landmark_metadata}
-    return datasets, loaders, runtime_info
+    runtime_info = {
+        "landmarks": landmark_metadata,
+        "prepared_data": dataset_metadata,
+        "artifact_dir": str(artifact_dir),
+    }
+    return datasets, loaders, runtime_info, artifact_dir
 
 
 def build_training_components(
-    emotion_config: EmotionConfig,
     train_config: TrainConfig,
     train_df,
 ):
@@ -216,16 +230,16 @@ def run_epoch(model, loader, criterion, device, training, amp_enabled, optimizer
     return {"loss": avg_loss, "accuracy": accuracy, "f1": f1, "preds": all_preds, "targets": all_targets}
 
 
-def train_pipeline(emotion_config: EmotionConfig, train_config: TrainConfig) -> dict[str, object]:
+def train_pipeline(
+    experiment_config: ExperimentConfig,
+    emotion_config: EmotionConfig,
+    train_config: TrainConfig,
+) -> dict[str, object]:
     emotion_config.output_dir.mkdir(parents=True, exist_ok=True)
     emotion_config.results_dir.mkdir(parents=True, exist_ok=True)
-    datasets, loaders, runtime_info = create_dataloaders(emotion_config, train_config)
-    device, model, criterion, optimizer, scheduler = build_training_components(
-        emotion_config,
-        train_config,
-        datasets["train"],
-    )
-    run_dir = create_run_directory(emotion_config.results_dir, build_run_name(emotion_config, train_config))
+    datasets, loaders, runtime_info, artifact_dir = create_dataloaders(experiment_config, emotion_config, train_config)
+    device, model, criterion, optimizer, scheduler = build_training_components(train_config, datasets["train"])
+    run_dir = create_run_directory(emotion_config.results_dir, build_run_name(experiment_config, emotion_config, train_config))
 
     amp_enabled = train_config.use_amp and device.type == "cuda"
     scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
@@ -276,11 +290,23 @@ def train_pipeline(emotion_config: EmotionConfig, train_config: TrainConfig) -> 
                     "config": {
                         "emotion": asdict(emotion_config)
                         | {
-                            "fer_csv": str(emotion_config.fer_csv),
                             "output_dir": str(emotion_config.output_dir),
                             "results_dir": str(emotion_config.results_dir),
                         },
                         "train": asdict(train_config),
+                        "experiment": {
+                            "train_dataset": {
+                                "name": experiment_config.train_dataset.name,
+                                "kind": experiment_config.train_dataset.kind,
+                                "path": str(experiment_config.train_dataset.path),
+                            },
+                            "test_mode": experiment_config.test_mode,
+                            "test_dataset": {
+                                "name": experiment_config.resolved_test_dataset.name,
+                                "kind": experiment_config.resolved_test_dataset.kind,
+                                "path": str(experiment_config.resolved_test_dataset.path),
+                            },
+                        },
                     },
                     "model_metadata": {
                         "use_landmarks": train_config.use_landmarks,
@@ -300,6 +326,10 @@ def train_pipeline(emotion_config: EmotionConfig, train_config: TrainConfig) -> 
             f"{duration:.1f}s"
         )
 
+    if checkpoint_path.exists():
+        best_checkpoint = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(best_checkpoint["model_state_dict"])
+
     test_metrics = run_epoch(model, loaders["test"], criterion, device, training=False, amp_enabled=amp_enabled)
     report = classification_report(
         test_metrics["targets"],
@@ -314,6 +344,14 @@ def train_pipeline(emotion_config: EmotionConfig, train_config: TrainConfig) -> 
         "device": str(device),
         "run_dir": str(run_dir),
         "best_checkpoint": str(checkpoint_path),
+        "artifact_dir": str(artifact_dir),
+        "experiment": {
+            "train_dataset": experiment_config.train_dataset.name,
+            "test_dataset": experiment_config.resolved_test_dataset.name,
+            "test_mode": experiment_config.test_mode,
+            "face_crop": emotion_config.use_face_crop,
+            "landmarks": train_config.use_landmarks,
+        },
         "best_metrics": best_metrics,
         "history": history,
         "runtime_info": runtime_info,
@@ -332,11 +370,13 @@ def train_pipeline(emotion_config: EmotionConfig, train_config: TrainConfig) -> 
     save_json_report(result, run_dir, "training_results.json")
     save_training_metadata(
         run_dir,
+        experiment_config,
         emotion_config,
         train_config,
         {
             "device": str(device),
             "best_checkpoint": str(checkpoint_path),
+            "artifact_dir": str(artifact_dir),
             "runtime_info": runtime_info,
             "train_rows": int(len(datasets["train"])),
             "val_rows": int(len(datasets["val"])),
@@ -346,7 +386,12 @@ def train_pipeline(emotion_config: EmotionConfig, train_config: TrainConfig) -> 
     return result
 
 
-def evaluate_checkpoint(checkpoint_path: Path, emotion_config: EmotionConfig, train_config: TrainConfig) -> dict[str, object]:
+def evaluate_checkpoint(
+    checkpoint_path: Path,
+    experiment_config: ExperimentConfig,
+    emotion_config: EmotionConfig,
+    train_config: TrainConfig,
+) -> dict[str, object]:
     device = resolve_device(train_config.device)
     checkpoint = torch.load(checkpoint_path, map_location=device)
     metadata = checkpoint.get("model_metadata", {})
@@ -356,7 +401,7 @@ def evaluate_checkpoint(checkpoint_path: Path, emotion_config: EmotionConfig, tr
         train_config.landmark_hidden_dim = metadata.get("landmark_hidden_dim", train_config.landmark_hidden_dim)
         train_config.fusion_hidden_dim = metadata.get("fusion_hidden_dim", train_config.fusion_hidden_dim)
 
-    _, loaders, _ = create_dataloaders(emotion_config, train_config)
+    _, loaders, runtime_info, artifact_dir = create_dataloaders(experiment_config, emotion_config, train_config)
     model = EmotionClassifier(
         num_classes=len(train_config.class_names),
         dropout=train_config.dropout,
@@ -381,5 +426,7 @@ def evaluate_checkpoint(checkpoint_path: Path, emotion_config: EmotionConfig, tr
         "loss": metrics["loss"],
         "accuracy": metrics["accuracy"],
         "f1": metrics["f1"],
+        "artifact_dir": str(artifact_dir),
+        "runtime_info": runtime_info,
         "confusion_matrix": confusion_matrix(metrics["targets"], metrics["preds"]).tolist(),
     }

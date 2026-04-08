@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 artifacts/
 results/
+best_emotion_model/
+.pycache_tmp/
+venv/

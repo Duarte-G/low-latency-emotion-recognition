@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import json
+from pathlib import Path
 
+from .comparison import export_comparison
 from .config import EmotionConfig, TrainConfig
-from .data import prepare_datasets, save_prepared_splits, summarize_split
+from .data import prepare_experiment_datasets, save_prepared_splits, summarize_split
+from .experiments import build_experiment_config, default_dataset_root, describe_experiment
 from .inference import EmotionPredictor, run_webcam
+from .results import build_artifact_name
 from .training import evaluate_checkpoint, train_pipeline
 
 
@@ -36,14 +39,30 @@ def build_parser() -> argparse.ArgumentParser:
     webcam.add_argument("--camera-index", type=int, default=0)
     webcam.add_argument("--device", default="auto")
 
+    wizard = subparsers.add_parser("wizard", help="Abre um menu interativo para configurar e rodar um experimento.")
+    _add_common_data_args(wizard)
+    _add_train_args(wizard)
+
+    compare = subparsers.add_parser("compare", help="Compara resultados de duas ou mais execucoes salvas.")
+    compare.add_argument("--results-dir", type=Path, default=Path("results"))
+    compare.add_argument("--run-dir", type=Path, action="append", dest="run_dirs")
+    compare.add_argument("--latest", type=int)
+    compare.add_argument("--name", default="comparison")
+
     return parser
 
 
 def _add_common_data_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--fer-csv", type=Path, required=True)
+    parser.add_argument("--dataset-root", type=Path, default=default_dataset_root())
+    parser.add_argument("--train-dataset", choices=["fer2013", "affectnet"], default="fer2013")
+    parser.add_argument("--test-mode", choices=["same_dataset", "cross_dataset"], default="same_dataset")
+    parser.add_argument("--test-dataset", choices=["fer2013", "affectnet"])
+    parser.add_argument("--fer-csv", type=Path)
+    parser.add_argument("--affectnet-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts"))
     parser.add_argument("--results-dir", type=Path, default=Path("results"))
     parser.add_argument("--balance-target-count", type=int, default=7000)
+    parser.add_argument("--validation-split", type=float, default=0.2)
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--disable-face-crop", action="store_true")
@@ -67,13 +86,24 @@ def _add_train_args(parser: argparse.ArgumentParser) -> None:
 
 def _emotion_config_from_args(args) -> EmotionConfig:
     return EmotionConfig(
-        fer_csv=args.fer_csv,
         output_dir=args.output_dir,
         results_dir=args.results_dir,
         target_image_size=args.image_size,
-        balance_target_count=args.balance_target_count,
         train_split_seed=args.seed,
         use_face_crop=not args.disable_face_crop,
+    )
+
+
+def _experiment_config_from_args(args):
+    return build_experiment_config(
+        train_dataset_kind=args.train_dataset,
+        test_mode=args.test_mode,
+        test_dataset_kind=args.test_dataset,
+        dataset_root=args.dataset_root,
+        fer_csv=args.fer_csv,
+        affectnet_dir=args.affectnet_dir,
+        validation_split=args.validation_split,
+        fer_balance_target_count=args.balance_target_count,
     )
 
 
@@ -95,25 +125,110 @@ def _train_config_from_args(args) -> TrainConfig:
     )
 
 
+def _prompt_choice(title: str, options: list[tuple[str, str]], default_index: int = 0) -> str:
+    print(f"\n{title}")
+    for idx, (_, label) in enumerate(options, start=1):
+        default_marker = " [padrao]" if idx - 1 == default_index else ""
+        print(f"{idx}. {label}{default_marker}")
+
+    while True:
+        raw = input("Escolha uma opcao: ").strip()
+        if not raw:
+            return options[default_index][0]
+        if raw.isdigit():
+            selection = int(raw) - 1
+            if 0 <= selection < len(options):
+                return options[selection][0]
+        print("Opcao invalida. Tente novamente.")
+
+
+def _prompt_yes_no(question: str, default: bool = False) -> bool:
+    suffix = "[S/n]" if default else "[s/N]"
+    while True:
+        raw = input(f"{question} {suffix}: ").strip().lower()
+        if not raw:
+            return default
+        if raw in {"s", "sim", "y", "yes"}:
+            return True
+        if raw in {"n", "nao", "não", "no"}:
+            return False
+        print("Resposta invalida. Digite s ou n.")
+
+
+def _build_wizard_configs(args):
+    train_dataset = _prompt_choice(
+        "Dataset de treino:",
+        [("fer2013", "FER-2013"), ("affectnet", "AffectNet")],
+        default_index=0,
+    )
+    crop_mode = _prompt_choice(
+        "Modo de entrada:",
+        [("baseline", "Baseline (sem face crop)"), ("face_crop", "Face crop com MediaPipe/OpenCV")],
+        default_index=1,
+    )
+    use_landmarks = _prompt_yes_no("Ativar landmarks do MediaPipe?", default=False)
+    test_mode = _prompt_choice(
+        "Modo de avaliacao final:",
+        [("same_dataset", "Usar o teste do proprio dataset"), ("cross_dataset", "Usar teste cruzado em outro dataset")],
+        default_index=0,
+    )
+
+    test_dataset = None
+    if test_mode == "cross_dataset":
+        test_options = [("fer2013", "FER-2013"), ("affectnet", "AffectNet")]
+        test_dataset = _prompt_choice("Dataset de teste:", test_options, default_index=1 if train_dataset == "fer2013" else 0)
+        if test_dataset == train_dataset:
+            print("Teste cruzado exige um dataset diferente. O teste sera feito no outro dataset automaticamente.")
+            test_dataset = "affectnet" if train_dataset == "fer2013" else "fer2013"
+
+    experiment_config = build_experiment_config(
+        train_dataset_kind=train_dataset,
+        test_mode=test_mode,
+        test_dataset_kind=test_dataset,
+        dataset_root=args.dataset_root,
+        fer_csv=args.fer_csv,
+        affectnet_dir=args.affectnet_dir,
+        validation_split=args.validation_split,
+        fer_balance_target_count=args.balance_target_count,
+    )
+    emotion_config = EmotionConfig(
+        output_dir=args.output_dir,
+        results_dir=args.results_dir,
+        target_image_size=args.image_size,
+        train_split_seed=args.seed,
+        use_face_crop=(crop_mode == "face_crop"),
+    )
+    train_config = _train_config_from_args(args)
+    train_config.use_landmarks = use_landmarks
+    return experiment_config, emotion_config, train_config
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
     if args.command == "prepare":
+        experiment_config = _experiment_config_from_args(args)
         emotion_config = _emotion_config_from_args(args)
-        datasets = prepare_datasets(emotion_config)
-        save_prepared_splits(datasets, emotion_config)
+        datasets, metadata = prepare_experiment_datasets(experiment_config, emotion_config)
+        artifact_dir = emotion_config.output_dir / build_artifact_name(experiment_config, emotion_config)
+        save_prepared_splits(datasets, artifact_dir, metadata)
         print(json.dumps({name: summarize_split(datasets[name]) for name in ("train", "val", "test")}, indent=2))
         return
 
     if args.command == "train":
-        result = train_pipeline(_emotion_config_from_args(args), _train_config_from_args(args))
+        result = train_pipeline(_experiment_config_from_args(args), _emotion_config_from_args(args), _train_config_from_args(args))
         print(json.dumps(result["best_metrics"], indent=2))
         print(json.dumps(result["test"], indent=2))
         return
 
     if args.command == "evaluate":
-        metrics = evaluate_checkpoint(args.checkpoint, _emotion_config_from_args(args), _train_config_from_args(args))
+        metrics = evaluate_checkpoint(
+            args.checkpoint,
+            _experiment_config_from_args(args),
+            _emotion_config_from_args(args),
+            _train_config_from_args(args),
+        )
         print(json.dumps(metrics, indent=2))
         return
 
@@ -124,6 +239,30 @@ def main() -> None:
 
     if args.command == "webcam":
         run_webcam(args.checkpoint, camera_index=args.camera_index, device=args.device)
+        return
+
+    if args.command == "wizard":
+        experiment_config, emotion_config, train_config = _build_wizard_configs(args)
+        summary = describe_experiment(experiment_config, emotion_config.use_face_crop, train_config.use_landmarks)
+        print("\nResumo do experimento:")
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+        if not _prompt_yes_no("Deseja iniciar o treinamento com essa configuração?", default=True):
+            print("Treinamento cancelado.")
+            return
+
+        result = train_pipeline(experiment_config, emotion_config, train_config)
+        print(json.dumps(result["best_metrics"], indent=2))
+        print(json.dumps(result["test"], indent=2))
+        return
+
+    if args.command == "compare":
+        result = export_comparison(
+            results_dir=args.results_dir,
+            run_dirs=args.run_dirs,
+            latest=args.latest,
+            comparison_name=args.name,
+        )
+        print(json.dumps(result, indent=2, ensure_ascii=False))
         return
 
 

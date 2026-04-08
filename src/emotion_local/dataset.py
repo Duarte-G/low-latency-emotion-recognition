@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import cv2
 import numpy as np
 import pandas as pd
 import torch
@@ -10,6 +9,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from .data import row_to_rgb
 from .face_detection import FaceCropper
 
 
@@ -62,10 +62,7 @@ class EmotionDataset(Dataset):
 
     def __getitem__(self, idx: int):
         row = self.data.iloc[idx]
-        pixels = np.fromstring(row["pixels"], dtype=np.float32, sep=" ")
-        side = int(np.sqrt(len(pixels)))
-        image_48 = pixels.reshape(side, side).astype(np.uint8)
-        image_rgb = cv2.cvtColor(image_48, cv2.COLOR_GRAY2RGB)
+        image_rgb = row_to_rgb(row)
         face_rgb = self._extract_face_roi(image_rgb)
         image = Image.fromarray(face_rgb).resize(self.target_size)
         image_tensor = self.transform(image)

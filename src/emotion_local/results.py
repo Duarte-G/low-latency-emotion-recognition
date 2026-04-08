@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
-from .config import EmotionConfig, TrainConfig
+from .config import EmotionConfig, ExperimentConfig, TrainConfig
 
 
 def _slugify(value: str) -> str:
@@ -19,8 +19,20 @@ def _slugify(value: str) -> str:
     return value.strip("-") or "run"
 
 
-def build_run_name(emotion_config: EmotionConfig, train_config: TrainConfig) -> str:
-    dataset_name = _slugify(emotion_config.fer_csv.stem)
+def build_artifact_name(experiment_config: ExperimentConfig, emotion_config: EmotionConfig) -> str:
+    train_name = _slugify(experiment_config.train_dataset.name)
+    test_name = _slugify(experiment_config.resolved_test_dataset.name)
+    mode = "cross" if experiment_config.test_mode == "cross_dataset" else "self"
+    seed = f"seed{emotion_config.train_split_seed}"
+    val_split = f"val{int(experiment_config.train_dataset.validation_split * 100):02d}"
+    balance = f"bal{experiment_config.train_dataset.balance_target_count}" if experiment_config.train_dataset.kind == "fer2013" else "balna"
+    return "_".join([train_name, mode, test_name, seed, val_split, balance])
+
+
+def build_run_name(experiment_config: ExperimentConfig, emotion_config: EmotionConfig, train_config: TrainConfig) -> str:
+    dataset_name = _slugify(experiment_config.train_dataset.name)
+    test_name = _slugify(experiment_config.resolved_test_dataset.name)
+    test_mode = "cross" if experiment_config.test_mode == "cross_dataset" else "self"
     modality = "img-lm" if train_config.use_landmarks else "img-only"
     crop_mode = "facecrop" if emotion_config.use_face_crop else "nocrop"
     image_size = f"img{emotion_config.target_image_size}"
@@ -28,7 +40,7 @@ def build_run_name(emotion_config: EmotionConfig, train_config: TrainConfig) -> 
     epochs = f"ep{train_config.num_epochs}"
     lr = f"lr{format(train_config.learning_rate, '.0e').replace('+', '')}"
     device = _slugify(train_config.device)
-    return "_".join([dataset_name, modality, crop_mode, image_size, batch, epochs, lr, device])
+    return "_".join([dataset_name, test_mode, test_name, modality, crop_mode, image_size, batch, epochs, lr, device])
 
 
 def create_run_directory(results_dir: Path, run_name: str) -> Path:
@@ -49,14 +61,31 @@ def save_history_csv(history: dict[str, list[float]], run_dir: Path) -> Path:
 
 def save_training_metadata(
     run_dir: Path,
+    experiment_config: ExperimentConfig,
     emotion_config: EmotionConfig,
     train_config: TrainConfig,
     extra: dict[str, object],
 ) -> Path:
     payload = {
+        "experiment_config": {
+            "train_dataset": {
+                "name": experiment_config.train_dataset.name,
+                "kind": experiment_config.train_dataset.kind,
+                "path": str(experiment_config.train_dataset.path),
+                "validation_split": experiment_config.train_dataset.validation_split,
+                "balance_target_count": experiment_config.train_dataset.balance_target_count,
+            },
+            "test_mode": experiment_config.test_mode,
+            "test_dataset": {
+                "name": experiment_config.resolved_test_dataset.name,
+                "kind": experiment_config.resolved_test_dataset.kind,
+                "path": str(experiment_config.resolved_test_dataset.path),
+                "validation_split": experiment_config.resolved_test_dataset.validation_split,
+                "balance_target_count": experiment_config.resolved_test_dataset.balance_target_count,
+            },
+        },
         "emotion_config": {
             **asdict(emotion_config),
-            "fer_csv": str(emotion_config.fer_csv),
             "output_dir": str(emotion_config.output_dir),
             "results_dir": str(emotion_config.results_dir),
         },
