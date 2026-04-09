@@ -83,7 +83,7 @@ def augment_image(
     return img.astype(np.float32)
 
 
-def balance_dataset(df: pd.DataFrame, target_count: int, dataset_name: str) -> pd.DataFrame:
+def balance_training_split(df: pd.DataFrame, target_count: int, dataset_name: str) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
 
     for emotion_idx, emotion_name in enumerate(EMOTION_LABELS):
@@ -105,13 +105,12 @@ def balance_dataset(df: pd.DataFrame, target_count: int, dataset_name: str) -> p
         if current_count >= target_count:
             continue
 
-        train_samples = emotion_data[emotion_data["usage"] == "Training"]
-        if train_samples.empty:
+        if emotion_data.empty:
             raise ValueError(f"Classe {emotion_name} nao possui amostras de treino para augmentation.")
 
         needed = target_count - current_count
         for _ in range(needed):
-            sample = train_samples.sample(1).iloc[0]
+            sample = emotion_data.sample(1).iloc[0]
             image = pixels_to_image(sample["pixels"])
             augmented = augment_image(image)
             rows.append(
@@ -167,19 +166,22 @@ def prepare_fer2013_datasets(dataset_config: DatasetConfig, emotion_config: Emot
     raw = load_fer2013(dataset_config.path)
     filtered = filter_and_remap_emotions(raw)
     normalized = _normalize_fer_dataframe(filtered, dataset_config.name)
-    balanced = balance_dataset(normalized, dataset_config.balance_target_count, dataset_name=dataset_config.name)
-    train_df, val_df, test_df = split_fer_dataset(
-        balanced,
+    train_pool = normalized[normalized["usage"] == "Training"].reset_index(drop=True)
+    test_df = normalized[normalized["usage"] == "PublicTest"].reset_index(drop=True)
+    balanced_train = balance_training_split(train_pool, dataset_config.balance_target_count, dataset_name=dataset_config.name)
+    train_df, val_df = split_training_validation(
+        balanced_train,
         seed=emotion_config.train_split_seed,
         validation_split=dataset_config.validation_split,
     )
     return {
         "raw": raw,
         "filtered": filtered,
-        "balanced": balanced,
+        "train_pool": train_pool,
+        "balanced": balanced_train,
         "train": train_df,
         "val": val_df,
-        "test": test_df,
+        "test": test_df.reset_index(drop=True),
     }
 
 

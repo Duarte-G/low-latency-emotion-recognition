@@ -9,6 +9,7 @@ from .config import EmotionConfig, TrainConfig
 from .data import prepare_experiment_datasets, save_prepared_splits, summarize_split
 from .experiments import build_experiment_config, default_dataset_root, describe_experiment
 from .inference import EmotionPredictor, run_webcam
+from .server import run_server
 from .results import build_artifact_name
 from .training import evaluate_checkpoint, train_pipeline
 
@@ -38,6 +39,13 @@ def build_parser() -> argparse.ArgumentParser:
     webcam.add_argument("--checkpoint", type=Path, required=True)
     webcam.add_argument("--camera-index", type=int, default=0)
     webcam.add_argument("--device", default="auto")
+
+    serve = subparsers.add_parser("serve", help="Inicia um servidor HTTP para receber imagens da Unity.")
+    serve.add_argument("--checkpoint", type=Path, required=True)
+    serve.add_argument("--host", default="0.0.0.0")
+    serve.add_argument("--port", type=int, default=5000)
+    serve.add_argument("--device", default="auto")
+    serve.add_argument("--debug", action="store_true")
 
     wizard = subparsers.add_parser("wizard", help="Abre um menu interativo para configurar e rodar um experimento.")
     _add_common_data_args(wizard)
@@ -239,6 +247,16 @@ def main() -> None:
 
     if args.command == "webcam":
         run_webcam(args.checkpoint, camera_index=args.camera_index, device=args.device)
+        return
+
+    if args.command == "serve":
+        run_server(
+            checkpoint_path=args.checkpoint,
+            host=args.host,
+            port=args.port,
+            device=args.device,
+            debug=args.debug,
+        )
         return
 
     if args.command == "wizard":

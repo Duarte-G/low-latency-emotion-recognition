@@ -1,6 +1,7 @@
 numpy<2.3
 pandas
 matplotlib
+flask
 opencv-python
 scipy
 scikit-learn

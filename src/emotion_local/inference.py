@@ -16,6 +16,14 @@ from .model import EmotionClassifier, resolve_device
 class EmotionPredictor:
     def __init__(self, checkpoint_path: Path, device: str = "auto") -> None:
         self.device = resolve_device(device)
+        checkpoint_path = checkpoint_path.resolve()
+        if checkpoint_path.is_dir():
+            raise IsADirectoryError(
+                "O argumento --checkpoint precisa apontar para um arquivo .pt/.pth. "
+                f"Foi recebido um diretorio: {checkpoint_path}"
+            )
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint nao encontrado: {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         self.labels = checkpoint.get("emotion_labels", ["Angry", "Happy", "Sad", "Neutral"])
         model_metadata = checkpoint.get("model_metadata", {})
@@ -41,9 +49,9 @@ class EmotionPredictor:
         self._face_cropper = FaceCropper(min_detection_confidence=0.5)
         self._landmark_extractor = None
 
-    def _extract_face(self, image_bgr: np.ndarray) -> np.ndarray:
+    def _detect_face(self, image_bgr: np.ndarray):
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        return self._face_cropper.crop_face(image_rgb)
+        return self._face_cropper.detect(image_rgb)
 
     def _extract_landmarks(self, face_rgb: np.ndarray) -> torch.Tensor | None:
         if not self.use_landmarks:
@@ -57,41 +65,37 @@ class EmotionPredictor:
         vector = self._landmark_extractor.extract(face_rgb)
         return torch.tensor(vector, dtype=torch.float32, device=self.device).unsqueeze(0)
 
+    def _predict_face_rgb(self, face_rgb: np.ndarray) -> dict[str, object]:
+        landmarks = self._extract_landmarks(face_rgb)
+        tensor = self.transform(Image.fromarray(face_rgb)).unsqueeze(0).to(self.device)
+
+        with torch.no_grad():
+            logits = self.model(tensor, landmarks)
+            probs = torch.softmax(logits, dim=1)[0].cpu().numpy()
+
+        predicted_idx = int(np.argmax(probs))
+        return {
+            "label": self.labels[predicted_idx],
+            "confidence": float(probs[predicted_idx]),
+            "probabilities": {label: float(probs[idx]) for idx, label in enumerate(self.labels)},
+        }
+
+    def analyze_frame(self, image_bgr: np.ndarray) -> dict[str, object]:
+        detection = self._detect_face(image_bgr)
+        prediction = self._predict_face_rgb(detection.face_rgb)
+        prediction["face_detected"] = detection.bbox_xyxy is not None
+        prediction["bbox_xyxy"] = detection.bbox_xyxy
+        return prediction
+
     def predict_image(self, image_path: Path) -> dict[str, object]:
         image_bgr = cv2.imread(str(image_path))
         if image_bgr is None:
             raise FileNotFoundError(f"Nao foi possivel abrir a imagem: {image_path}")
 
-        face_rgb = self._extract_face(image_bgr)
-        landmarks = self._extract_landmarks(face_rgb)
-        tensor = self.transform(Image.fromarray(face_rgb)).unsqueeze(0).to(self.device)
-
-        with torch.no_grad():
-            logits = self.model(tensor, landmarks)
-            probs = torch.softmax(logits, dim=1)[0].cpu().numpy()
-
-        predicted_idx = int(np.argmax(probs))
-        return {
-            "label": self.labels[predicted_idx],
-            "confidence": float(probs[predicted_idx]),
-            "probabilities": {label: float(probs[idx]) for idx, label in enumerate(self.labels)},
-        }
+        return self.analyze_frame(image_bgr)
 
     def predict_frame(self, image_bgr: np.ndarray) -> dict[str, object]:
-        face_rgb = self._extract_face(image_bgr)
-        landmarks = self._extract_landmarks(face_rgb)
-        tensor = self.transform(Image.fromarray(face_rgb)).unsqueeze(0).to(self.device)
-
-        with torch.no_grad():
-            logits = self.model(tensor, landmarks)
-            probs = torch.softmax(logits, dim=1)[0].cpu().numpy()
-
-        predicted_idx = int(np.argmax(probs))
-        return {
-            "label": self.labels[predicted_idx],
-            "confidence": float(probs[predicted_idx]),
-            "probabilities": {label: float(probs[idx]) for idx, label in enumerate(self.labels)},
-        }
+        return self.analyze_frame(image_bgr)
 
 
 def run_webcam(checkpoint_path: Path, camera_index: int = 0, device: str = "auto") -> None:

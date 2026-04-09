@@ -144,3 +144,40 @@ Cada linha da comparacao inclui, entre outros campos:
 - uso de landmarks
 - `val_accuracy`, `val_f1`, `test_accuracy`, `test_f1`
 - metricas por emocao extraidas do `classification_report`
+
+## Estado Atual Recomendado
+
+Os exemplos acima mais antigos que usam `--fer-csv` isoladamente ficaram defasados. Para o estado atual do projeto, considere este fluxo como o correto:
+
+- use `python -m src.emotion_local.cli wizard` para configurar o experimento pelo menu
+- use `--train-dataset fer2013` para o FER-2013
+- use `--train-dataset affectnet` para o AffectNet
+- use `--test-mode same_dataset` para teste no proprio dataset
+- use `--test-mode cross_dataset --test-dataset ...` para teste cruzado
+- use `--use-landmarks` apenas se o MediaPipe FaceMesh estiver funcionando no ambiente
+
+Observacoes metodologicas importantes:
+
+- o FER-2013 e lido a partir do CSV
+- o AffectNet e lido a partir das imagens `.jpg` nas pastas
+- o FER-2013 e balanceado por augmentation apenas no split de treino
+- o AffectNet nao recebe esse mesmo balanceamento artificial
+- a inferencia por webcam exige um checkpoint em arquivo `.pt` ou `.pth`
+- a pasta `best_emotion_model/` sozinha nao pode ser passada diretamente para `--checkpoint`
+
+Exemplos atualizados:
+
+```bash
+python -m src.emotion_local.cli wizard
+python -m src.emotion_local.cli train --train-dataset fer2013 --test-mode same_dataset
+python -m src.emotion_local.cli train --train-dataset affectnet --test-mode same_dataset
+python -m src.emotion_local.cli train --train-dataset fer2013 --test-mode cross_dataset --test-dataset affectnet
+python -m src.emotion_local.cli webcam --checkpoint results\\caminho\\best_emotion_model.pt --device auto
+python -m src.emotion_local.cli serve --checkpoint results\\caminho\\best_emotion_model.pt --host 0.0.0.0 --port 5000
+```
+
+Servidor para Unity:
+
+- `GET /health`: status do servidor
+- `GET /emotion`: ultima emocao processada
+- `POST /predict`: recebe uma imagem no campo `image` e retorna emocao, confianca e probabilidades
