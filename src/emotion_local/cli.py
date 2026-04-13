@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 
@@ -46,6 +47,10 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=5000)
     serve.add_argument("--device", default="auto")
     serve.add_argument("--debug", action="store_true")
+
+    benchmark = subparsers.add_parser("benchmark", help="Executa todas as combinacoes de experimento em lote.")
+    _add_common_data_args(benchmark)
+    _add_train_args(benchmark)
 
     wizard = subparsers.add_parser("wizard", help="Abre um menu interativo para configurar e rodar um experimento.")
     _add_common_data_args(wizard)
@@ -164,6 +169,14 @@ def _prompt_yes_no(question: str, default: bool = False) -> bool:
 
 
 def _build_wizard_configs(args):
+    execution_mode = _prompt_choice(
+        "Modo de execucao:",
+        [("single_experiment", "Rodar um experimento"), ("full_benchmark", "Rodar todas as combinacoes (overnight)")],
+        default_index=0,
+    )
+    if execution_mode == "full_benchmark":
+        return _build_benchmark_configs(args)
+
     train_dataset = _prompt_choice(
         "Dataset de treino:",
         [("fer2013", "FER-2013"), ("affectnet", "AffectNet")],
@@ -209,6 +222,106 @@ def _build_wizard_configs(args):
     train_config = _train_config_from_args(args)
     train_config.use_landmarks = use_landmarks
     return experiment_config, emotion_config, train_config
+
+
+def _build_benchmark_configs(args):
+    jobs = []
+    for train_dataset in ("fer2013", "affectnet"):
+        opposite_dataset = "affectnet" if train_dataset == "fer2013" else "fer2013"
+        for use_face_crop in (False, True):
+            for use_landmarks in (False, True):
+                for test_mode in ("same_dataset", "cross_dataset"):
+                    experiment_config = build_experiment_config(
+                        train_dataset_kind=train_dataset,
+                        test_mode=test_mode,
+                        test_dataset_kind=None if test_mode == "same_dataset" else opposite_dataset,
+                        dataset_root=args.dataset_root,
+                        fer_csv=args.fer_csv,
+                        affectnet_dir=args.affectnet_dir,
+                        validation_split=args.validation_split,
+                        fer_balance_target_count=args.balance_target_count,
+                    )
+                    emotion_config = EmotionConfig(
+                        output_dir=args.output_dir,
+                        results_dir=args.results_dir,
+                        target_image_size=args.image_size,
+                        train_split_seed=args.seed,
+                        use_face_crop=use_face_crop,
+                    )
+                    train_config = _train_config_from_args(args)
+                    train_config.use_landmarks = use_landmarks
+                    jobs.append(
+                        (
+                            experiment_config,
+                            emotion_config,
+                            train_config,
+                            describe_experiment(experiment_config, emotion_config.use_face_crop, train_config.use_landmarks),
+                        )
+                    )
+    return jobs
+
+
+def _run_benchmark_jobs(args, jobs):
+    benchmark_dir = args.results_dir / "benchmarks"
+    benchmark_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    summary = {
+        "created_at": datetime.now().isoformat(),
+        "num_jobs": len(jobs),
+        "succeeded": 0,
+        "failed": 0,
+        "runs": [],
+    }
+    successful_run_dirs: list[Path] = []
+
+    for index, (experiment_config, emotion_config, train_config, description) in enumerate(jobs, start=1):
+        print(f"\n[{index}/{len(jobs)}] Iniciando experimento:")
+        print(json.dumps(description, indent=2, ensure_ascii=False))
+
+        try:
+            result = train_pipeline(experiment_config, emotion_config, train_config)
+            summary["succeeded"] += 1
+            successful_run_dirs.append(Path(result["run_dir"]))
+            summary["runs"].append(
+                {
+                    **description,
+                    "status": "ok",
+                    "run_dir": result["run_dir"],
+                    "best_checkpoint": result["best_checkpoint"],
+                    "test_accuracy": result["test"]["accuracy"],
+                    "test_f1": result["test"]["f1"],
+                }
+            )
+        except Exception as exc:
+            summary["failed"] += 1
+            summary["runs"].append(
+                {
+                    **description,
+                    "status": "error",
+                    "error": str(exc),
+                }
+            )
+            print(f"Falha no experimento {index}: {exc}")
+
+    summary_path = benchmark_dir / f"{timestamp}_benchmark_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    comparison_result = None
+    if len(successful_run_dirs) >= 2:
+        comparison_result = export_comparison(
+            results_dir=args.results_dir,
+            run_dirs=successful_run_dirs,
+            comparison_name=f"{timestamp}_benchmark",
+        )
+        summary["comparison"] = comparison_result
+        summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return {
+        "summary_path": str(summary_path),
+        "benchmark": summary,
+        "comparison": comparison_result,
+    }
 
 
 def main() -> None:
@@ -259,8 +372,25 @@ def main() -> None:
         )
         return
 
+    if args.command == "benchmark":
+        result = _run_benchmark_jobs(args, _build_benchmark_configs(args))
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
+
     if args.command == "wizard":
-        experiment_config, emotion_config, train_config = _build_wizard_configs(args)
+        wizard_selection = _build_wizard_configs(args)
+        if isinstance(wizard_selection, list):
+            print("\nResumo do benchmark:")
+            print(f"Total de experimentos: {len(wizard_selection)}")
+            if not _prompt_yes_no("Deseja iniciar o benchmark completo agora?", default=True):
+                print("Benchmark cancelado.")
+                return
+
+            result = _run_benchmark_jobs(args, wizard_selection)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return
+
+        experiment_config, emotion_config, train_config = wizard_selection
         summary = describe_experiment(experiment_config, emotion_config.use_face_crop, train_config.use_landmarks)
         print("\nResumo do experimento:")
         print(json.dumps(summary, indent=2, ensure_ascii=False))

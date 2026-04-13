@@ -90,6 +90,14 @@ Menu guiado:
 python -m src.emotion_local.cli wizard
 ```
 
+No menu, agora existe tambem a opcao de benchmark completo para rodar todas as combinacoes durante a noite.
+
+Benchmark completo direto pela CLI:
+
+```bash
+python -m src.emotion_local.cli benchmark
+```
+
 Exemplos diretos:
 
 ```bash
@@ -123,6 +131,17 @@ Comparar os dois treinos mais recentes:
 ```bash
 python -m src.emotion_local.cli compare --latest 2 --name comparacao_inicial
 ```
+
+Fluxo sugerido para benchmark noturno:
+
+1. Rode `python -m src.emotion_local.cli wizard` e escolha `Rodar todas as combinacoes (overnight)`, ou execute `python -m src.emotion_local.cli benchmark`.
+2. Deixe o processo terminar todos os experimentos de FER-2013 e AffectNet com baseline, face crop, landmarks e teste cruzado.
+3. No dia seguinte, use `python -m src.emotion_local.cli compare --latest 16 --name tabela_completa` para gerar a tabela consolidada.
+
+O benchmark tambem salva automaticamente:
+
+- `results/benchmarks/<timestamp>_benchmark_summary.json`: resumo de todos os experimentos executados
+- `results/comparisons/<timestamp>_benchmark/`: comparacao automatica entre as execucoes que terminaram com sucesso
 
 Comparar execucoes especificas:
 
