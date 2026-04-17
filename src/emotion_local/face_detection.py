@@ -6,6 +6,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .mediapipe_runtime import bbox_from_landmarks, create_mp_image, load_mediapipe_tasks_context
+
 
 @dataclass(slots=True)
 class FaceDetectionResult:
@@ -39,6 +41,39 @@ class FaceCropper:
         except Exception:
             pass
 
+        try:
+            from mediapipe.python.solutions import face_detection as mp_face_detection
+
+            self._detector = mp_face_detection.FaceDetection(
+                model_selection=0,
+                min_detection_confidence=self.min_detection_confidence,
+            )
+            self._backend = "mediapipe"
+            return
+        except Exception:
+            pass
+
+        tasks_context = load_mediapipe_tasks_context()
+        if tasks_context is not None:
+            try:
+                options = tasks_context.face_landmarker_module.FaceLandmarkerOptions(
+                    base_options=tasks_context.base_options_cls(model_asset_path=str(tasks_context.model_path)),
+                    num_faces=1,
+                    min_face_detection_confidence=self.min_detection_confidence,
+                    min_face_presence_confidence=self.min_detection_confidence,
+                    min_tracking_confidence=0.5,
+                    output_face_blendshapes=False,
+                    output_facial_transformation_matrixes=False,
+                )
+                self._detector = {
+                    "context": tasks_context,
+                    "landmarker": tasks_context.face_landmarker_module.FaceLandmarker.create_from_options(options),
+                }
+                self._backend = "mediapipe_tasks_face_landmarker"
+                return
+            except Exception:
+                self._detector = None
+
         cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
         if cascade_path.exists():
             cascade = cv2.CascadeClassifier(str(cascade_path))
@@ -70,6 +105,22 @@ class FaceCropper:
                 return FaceDetectionResult(face_rgb=roi, bbox_xyxy=(x1, y1, x2, y2))
             return FaceDetectionResult(face_rgb=image_rgb, bbox_xyxy=None)
 
+        if self._backend == "mediapipe_tasks_face_landmarker":
+            mp_image = create_mp_image(self._detector["context"].mp, image_rgb)
+            results = self._detector["landmarker"].detect(mp_image)
+            if not results.face_landmarks:
+                return FaceDetectionResult(face_rgb=image_rgb, bbox_xyxy=None)
+
+            bbox_xyxy = bbox_from_landmarks(results.face_landmarks[0], image_rgb.shape)
+            if bbox_xyxy is None:
+                return FaceDetectionResult(face_rgb=image_rgb, bbox_xyxy=None)
+
+            x1, y1, x2, y2 = bbox_xyxy
+            roi = image_rgb[y1:y2, x1:x2]
+            if roi.size:
+                return FaceDetectionResult(face_rgb=roi, bbox_xyxy=bbox_xyxy)
+            return FaceDetectionResult(face_rgb=image_rgb, bbox_xyxy=None)
+
         if self._backend == "opencv":
             gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY)
             faces = self._detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20))
@@ -91,3 +142,12 @@ class FaceCropper:
     def backend(self) -> str:
         self._init_backend()
         return self._backend
+
+    def __del__(self) -> None:
+        detector = self._detector
+        if hasattr(detector, "close"):
+            detector.close()
+        elif isinstance(detector, dict):
+            landmarker = detector.get("landmarker")
+            if hasattr(landmarker, "close"):
+                landmarker.close()

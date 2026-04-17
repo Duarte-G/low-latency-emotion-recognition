@@ -55,13 +55,14 @@ class TrainConfig:
     num_epochs: int = 10
     learning_rate: float = 1e-4
     weight_decay: float = 1e-4
-    num_workers: int = 2
+    num_workers: int = 4
     dropout: float = 0.3
     pin_memory: bool = True
     persistent_workers: bool = True
     pretrained_backbone: bool = True
     save_name: str = "best_emotion_model.pt"
     use_amp: bool = True
+    amp_dtype: str = "bfloat16"
     scheduler_patience: int = 2
     scheduler_factor: float = 0.5
     device: str = "auto"

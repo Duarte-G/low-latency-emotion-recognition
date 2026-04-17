@@ -24,7 +24,7 @@ class EmotionPredictor:
             )
         if not checkpoint_path.exists():
             raise FileNotFoundError(f"Checkpoint nao encontrado: {checkpoint_path}")
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         self.labels = checkpoint.get("emotion_labels", ["Angry", "Happy", "Sad", "Neutral"])
         model_metadata = checkpoint.get("model_metadata", {})
         self.use_landmarks = model_metadata.get("use_landmarks", False)

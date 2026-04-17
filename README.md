@@ -41,7 +41,7 @@ Treinar:
 python -m src.emotion_local.cli train --fer-csv caminho/para/fer2013.csv --output-dir artifacts --epochs 10 --batch-size 32 --num-workers 4 --device auto
 ```
 
-Treinar com landmarks (atualmente com problemas no windows):
+Treinar com landmarks:
 
 ```bash
 python -m src.emotion_local.cli train --fer-csv caminho/para/fer2013.csv --output-dir artifacts --results-dir results --epochs 10 --batch-size 32 --num-workers 4 --device auto --use-landmarks
@@ -71,6 +71,7 @@ python -m src.emotion_local.cli webcam --checkpoint artifacts/best_emotion_model
 - O recorte por face via MediaPipe pode reduzir throughput. Se quiser medir impacto, use `--disable-face-crop`.
 - O pretreino da EfficientNet tenta usar pesos ImageNet. Se o download falhar, o codigo cai para pesos aleatorios.
 - Cada treino gera uma pasta propria dentro de `results/` com checkpoint, historico, graficos e matriz de confusao.
+- O projeto inclui o bundle `assets/mediapipe/face_landmarker.task` para a API nova do MediaPipe no Windows/Linux/WSL.
 
 ## Fluxo de Experimentos do TCC
 
@@ -173,7 +174,7 @@ Os exemplos acima mais antigos que usam `--fer-csv` isoladamente ficaram defasad
 - use `--train-dataset affectnet` para o AffectNet
 - use `--test-mode same_dataset` para teste no proprio dataset
 - use `--test-mode cross_dataset --test-dataset ...` para teste cruzado
-- use `--use-landmarks` apenas se o MediaPipe FaceMesh estiver funcionando no ambiente
+- use `--use-landmarks` quando o MediaPipe FaceMesh/FaceLandmarker estiver disponivel no ambiente
 
 Observacoes metodologicas importantes:
 

@@ -86,7 +86,7 @@ def _add_train_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--num-workers", type=int, default=2)
+    parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.3)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--no-pretrained", action="store_true")
@@ -95,6 +95,7 @@ def _add_train_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--landmark-dim", type=int, default=936)
     parser.add_argument("--landmark-hidden-dim", type=int, default=128)
     parser.add_argument("--fusion-hidden-dim", type=int, default=256)
+    parser.add_argument("--amp-dtype", choices=["bfloat16", "float16"], default="bfloat16")
 
 
 def _emotion_config_from_args(args) -> EmotionConfig:
@@ -135,6 +136,7 @@ def _train_config_from_args(args) -> TrainConfig:
         landmark_dim=args.landmark_dim,
         landmark_hidden_dim=args.landmark_hidden_dim,
         fusion_hidden_dim=args.fusion_hidden_dim,
+        amp_dtype=args.amp_dtype,
     )
 
 

@@ -9,6 +9,7 @@ import pandas as pd
 
 from .data import row_to_rgb
 from .face_detection import FaceCropper
+from .mediapipe_runtime import create_mp_image, landmarks_to_xy_array, load_mediapipe_tasks_context
 
 
 class FaceLandmarkExtractor:
@@ -40,6 +41,42 @@ class FaceLandmarkExtractor:
         except Exception:
             pass
 
+        try:
+            from mediapipe.python.solutions import face_mesh as mp_face_mesh
+
+            self._extractor = mp_face_mesh.FaceMesh(
+                static_image_mode=True,
+                refine_landmarks=False,
+                max_num_faces=1,
+                min_detection_confidence=self.min_detection_confidence,
+                min_tracking_confidence=0.5,
+            )
+            self._backend = "mediapipe_face_mesh"
+            return
+        except Exception:
+            pass
+
+        tasks_context = load_mediapipe_tasks_context()
+        if tasks_context is not None:
+            try:
+                options = tasks_context.face_landmarker_module.FaceLandmarkerOptions(
+                    base_options=tasks_context.base_options_cls(model_asset_path=str(tasks_context.model_path)),
+                    num_faces=1,
+                    min_face_detection_confidence=self.min_detection_confidence,
+                    min_face_presence_confidence=self.min_detection_confidence,
+                    min_tracking_confidence=0.5,
+                    output_face_blendshapes=False,
+                    output_facial_transformation_matrixes=False,
+                )
+                self._extractor = {
+                    "context": tasks_context,
+                    "landmarker": tasks_context.face_landmarker_module.FaceLandmarker.create_from_options(options),
+                }
+                self._backend = "mediapipe_tasks_face_landmarker"
+                return
+            except Exception:
+                self._extractor = None
+
         self._backend = "none"
 
     @property
@@ -50,29 +87,33 @@ class FaceLandmarkExtractor:
     def extract(self, image_rgb: np.ndarray) -> np.ndarray:
         self._init_backend()
 
-        if self._backend != "mediapipe_face_mesh":
+        if self._backend == "none":
             if not self._warned_unavailable:
                 print("Landmarks do MediaPipe indisponiveis neste ambiente. Usando vetores zerados.")
                 self._warned_unavailable = True
             return np.zeros(self.landmark_dim, dtype=np.float32)
 
         resized = cv2.resize(image_rgb, (224, 224), interpolation=cv2.INTER_LINEAR)
-        results = self._extractor.process(resized)
-        if not results.multi_face_landmarks:
+        if self._backend == "mediapipe_face_mesh":
+            results = self._extractor.process(resized)
+            if not results.multi_face_landmarks:
+                return np.zeros(self.landmark_dim, dtype=np.float32)
+            return landmarks_to_xy_array(results.multi_face_landmarks[0].landmark, self.landmark_dim)
+
+        mp_image = create_mp_image(self._extractor["context"].mp, resized)
+        results = self._extractor["landmarker"].detect(mp_image)
+        if not results.face_landmarks:
             return np.zeros(self.landmark_dim, dtype=np.float32)
+        return landmarks_to_xy_array(results.face_landmarks[0], self.landmark_dim)
 
-        coords: list[float] = []
-        for landmark in results.multi_face_landmarks[0].landmark:
-            coords.append(landmark.x)
-            coords.append(landmark.y)
-
-        arr = np.asarray(coords, dtype=np.float32)
-        if arr.shape[0] >= self.landmark_dim:
-            return arr[: self.landmark_dim]
-
-        padded = np.zeros(self.landmark_dim, dtype=np.float32)
-        padded[: arr.shape[0]] = arr
-        return padded
+    def __del__(self) -> None:
+        extractor = self._extractor
+        if hasattr(extractor, "close"):
+            extractor.close()
+        elif isinstance(extractor, dict):
+            landmarker = extractor.get("landmarker")
+            if hasattr(landmarker, "close"):
+                landmarker.close()
 
 def compute_landmarks_for_dataframe(
     dataframe: pd.DataFrame,

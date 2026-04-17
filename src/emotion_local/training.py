@@ -35,7 +35,8 @@ def _ensure_landmark_cache(
     emotion_config: EmotionConfig,
     train_config: TrainConfig,
 ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
-    landmark_dir = artifact_dir / "landmarks"
+    crop_mode = "facecrop" if emotion_config.use_face_crop else "nocrop"
+    landmark_dir = artifact_dir / f"landmarks_{crop_mode}"
     landmark_arrays: dict[str, np.ndarray] = {}
     metadata: dict[str, object] = {}
 
@@ -172,7 +173,7 @@ def build_training_components(
     return device, model, criterion, optimizer, scheduler
 
 
-def _forward_step(model, batch, criterion, device, amp_enabled, scaler=None, optimizer=None):
+def _forward_step(model, batch, criterion, device, amp_enabled, amp_dtype=torch.bfloat16, scaler=None, optimizer=None):
     if len(batch) == 3:
         images, landmarks, labels = batch
         landmarks = landmarks.to(device, non_blocking=True)
@@ -185,7 +186,7 @@ def _forward_step(model, batch, criterion, device, amp_enabled, scaler=None, opt
     if optimizer is not None:
         optimizer.zero_grad(set_to_none=True)
 
-    with torch.amp.autocast(device_type=device.type, enabled=amp_enabled):
+    with torch.amp.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
         logits = model(images, landmarks)
         loss = criterion(logits, labels)
 
@@ -202,7 +203,7 @@ def _forward_step(model, batch, criterion, device, amp_enabled, scaler=None, opt
     return loss.detach(), predictions.detach(), labels.detach()
 
 
-def run_epoch(model, loader, criterion, device, training, amp_enabled, optimizer=None, scaler=None):
+def run_epoch(model, loader, criterion, device, training, amp_enabled, amp_dtype=torch.bfloat16, optimizer=None, scaler=None):
     model.train(mode=training)
     total_loss = 0.0
     all_preds: list[int] = []
@@ -217,6 +218,7 @@ def run_epoch(model, loader, criterion, device, training, amp_enabled, optimizer
                 criterion,
                 device,
                 amp_enabled=amp_enabled,
+                amp_dtype=amp_dtype,
                 scaler=scaler,
                 optimizer=optimizer if training else None,
             )
@@ -242,7 +244,9 @@ def train_pipeline(
     run_dir = create_run_directory(emotion_config.results_dir, build_run_name(experiment_config, emotion_config, train_config))
 
     amp_enabled = train_config.use_amp and device.type == "cuda"
-    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+    amp_dtype_torch = torch.bfloat16 if train_config.amp_dtype == "bfloat16" else torch.float16
+    use_scaler = amp_enabled and amp_dtype_torch == torch.float16
+    scaler = torch.amp.GradScaler("cuda", enabled=True) if use_scaler else None
     best_val_acc = 0.0
     best_metrics: dict[str, float] = {}
     history = {
@@ -264,9 +268,9 @@ def train_pipeline(
     for epoch in range(train_config.num_epochs):
         start = time.time()
         train_metrics = run_epoch(
-            model, loaders["train"], criterion, device, training=True, amp_enabled=amp_enabled, optimizer=optimizer, scaler=scaler
+            model, loaders["train"], criterion, device, training=True, amp_enabled=amp_enabled, amp_dtype=amp_dtype_torch, optimizer=optimizer, scaler=scaler
         )
-        val_metrics = run_epoch(model, loaders["val"], criterion, device, training=False, amp_enabled=amp_enabled)
+        val_metrics = run_epoch(model, loaders["val"], criterion, device, training=False, amp_enabled=amp_enabled, amp_dtype=amp_dtype_torch)
         scheduler.step(val_metrics["accuracy"])
 
         history["train_loss"].append(train_metrics["loss"])
@@ -327,10 +331,10 @@ def train_pipeline(
         )
 
     if checkpoint_path.exists():
-        best_checkpoint = torch.load(checkpoint_path, map_location=device)
+        best_checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         model.load_state_dict(best_checkpoint["model_state_dict"])
 
-    test_metrics = run_epoch(model, loaders["test"], criterion, device, training=False, amp_enabled=amp_enabled)
+    test_metrics = run_epoch(model, loaders["test"], criterion, device, training=False, amp_enabled=amp_enabled, amp_dtype=amp_dtype_torch)
     report = classification_report(
         test_metrics["targets"],
         test_metrics["preds"],
@@ -393,7 +397,7 @@ def evaluate_checkpoint(
     train_config: TrainConfig,
 ) -> dict[str, object]:
     device = resolve_device(train_config.device)
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     metadata = checkpoint.get("model_metadata", {})
     if metadata.get("use_landmarks"):
         train_config.use_landmarks = True
@@ -414,13 +418,16 @@ def evaluate_checkpoint(
     model.load_state_dict(checkpoint["model_state_dict"])
 
     criterion = nn.CrossEntropyLoss()
+    amp_enabled_eval = train_config.use_amp and device.type == "cuda"
+    amp_dtype_eval = torch.bfloat16 if train_config.amp_dtype == "bfloat16" else torch.float16
     metrics = run_epoch(
         model,
         loaders["test"],
         criterion,
         device,
         training=False,
-        amp_enabled=train_config.use_amp and device.type == "cuda",
+        amp_enabled=amp_enabled_eval,
+        amp_dtype=amp_dtype_eval,
     )
     return {
         "loss": metrics["loss"],

@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 import csv
 import json
+import warnings
 
 
 def _parse_run_timestamp(run_dir: Path) -> str:
@@ -159,6 +160,123 @@ def _write_summary(rows: list[dict[str, object]], output_path: Path) -> None:
     output_path.write_text("\n".join(lines), encoding="utf-8")
 
 
+_EMOTION_LABELS = ["Angry", "Happy", "Sad", "Neutral"]
+
+
+def _short_label(row: dict[str, object]) -> str:
+    train_ds = str(row.get("train_dataset", "?"))[:3].upper()
+    test_ds = str(row.get("test_dataset", "?"))[:3].upper()
+    crop = "crop" if row.get("face_crop") else "nocrop"
+    lm = "+lm" if row.get("landmarks") else ""
+    mode = "cross" if row.get("test_mode") == "cross_dataset" else "same"
+    return f"{train_ds}→{test_ds}\n{crop}{lm}\n({mode})"
+
+
+def save_comparison_plots(rows: list[dict[str, object]], output_dir: Path) -> None:
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import seaborn as sns
+    except ImportError:
+        warnings.warn("matplotlib/seaborn nao encontrado — plots nao gerados.")
+        return
+
+    if not rows:
+        return
+
+    labels = [_short_label(r) for r in rows]
+    x = np.arange(len(rows))
+
+    # --- Plot 1: Accuracy e F1 por configuracao ---
+    acc_vals = [float(r.get("test_accuracy") or 0) for r in rows]
+    f1_vals = [float(r.get("test_f1") or 0) for r in rows]
+
+    fig, axes = plt.subplots(1, 2, figsize=(max(12, len(rows) * 1.5), 6))
+    fig.suptitle("Comparação de Configurações — Conjunto de Teste", fontsize=13, fontweight="bold")
+
+    axes[0].bar(x, acc_vals, color="steelblue", width=0.6)
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(labels, fontsize=7)
+    axes[0].set_ylabel("Acurácia (%)")
+    axes[0].set_title("Test Accuracy")
+    axes[0].set_ylim(0, 100)
+    for i, v in enumerate(acc_vals):
+        axes[0].text(i, v + 0.5, f"{v:.1f}", ha="center", va="bottom", fontsize=7)
+
+    axes[1].bar(x, f1_vals, color="darkorange", width=0.6)
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(labels, fontsize=7)
+    axes[1].set_ylabel("F1 Weighted")
+    axes[1].set_title("Test F1 (Weighted)")
+    axes[1].set_ylim(0, 1)
+    for i, v in enumerate(f1_vals):
+        axes[1].text(i, v + 0.005, f"{v:.3f}", ha="center", va="bottom", fontsize=7)
+
+    plt.tight_layout()
+    fig.savefig(output_dir / "accuracy_f1_comparison.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    # --- Plot 2: F1 por classe para cada configuracao ---
+    per_class_keys = {lbl: f"{lbl.lower()}_f1_score" for lbl in _EMOTION_LABELS}
+    available_classes = [lbl for lbl in _EMOTION_LABELS if any(per_class_keys[lbl] in r for r in rows)]
+
+    if available_classes:
+        n_classes = len(available_classes)
+        bar_w = 0.8 / max(n_classes, 1)
+        fig2, ax2 = plt.subplots(figsize=(max(12, len(rows) * 1.5), 6))
+        colors = sns.color_palette("Set2", n_classes)
+
+        for ci, cls in enumerate(available_classes):
+            key = per_class_keys[cls]
+            cls_vals = [float(r.get(key) or 0) for r in rows]
+            offsets = x - 0.4 + bar_w * ci + bar_w / 2
+            ax2.bar(offsets, cls_vals, width=bar_w * 0.9, label=cls, color=colors[ci])
+
+        ax2.set_xticks(x)
+        ax2.set_xticklabels(labels, fontsize=7)
+        ax2.set_ylabel("F1-Score")
+        ax2.set_title("F1 por Classe (per-class) — Comparação entre Configurações", fontweight="bold")
+        ax2.set_ylim(0, 1)
+        ax2.legend(loc="upper right")
+        plt.tight_layout()
+        fig2.savefig(output_dir / "per_class_f1_comparison.png", dpi=150, bbox_inches="tight")
+        plt.close(fig2)
+
+    # --- Plot 3: Heatmap — face_crop × landmarks para cada dataset de treino ---
+    for train_ds in ("fer2013", "affectnet"):
+        ds_rows = [r for r in rows if r.get("train_dataset") == train_ds and r.get("test_mode") == "same_dataset"]
+        if len(ds_rows) < 2:
+            continue
+
+        heatmap_data = np.full((2, 2), np.nan)
+        for r in ds_rows:
+            ci = 1 if r.get("face_crop") else 0
+            ri = 1 if r.get("landmarks") else 0
+            heatmap_data[ri, ci] = float(r.get("test_accuracy") or 0)
+
+        fig3, ax3 = plt.subplots(figsize=(6, 5))
+        mask = np.isnan(heatmap_data)
+        sns.heatmap(
+            heatmap_data,
+            annot=True,
+            fmt=".1f",
+            cmap="YlGnBu",
+            mask=mask,
+            xticklabels=["Sem Face Crop", "Com Face Crop"],
+            yticklabels=["Sem Landmarks", "Com Landmarks"],
+            ax=ax3,
+            vmin=0,
+            vmax=100,
+            linewidths=0.5,
+        )
+        ax3.set_title(f"Acurácia (%) — {train_ds.upper()} (same-dataset)", fontweight="bold")
+        plt.tight_layout()
+        fig3.savefig(output_dir / f"heatmap_{train_ds}.png", dpi=150, bbox_inches="tight")
+        plt.close(fig3)
+
+
 def export_comparison(
     results_dir: Path,
     run_dirs: list[Path] | None = None,
@@ -183,6 +301,7 @@ def export_comparison(
     summary_path = output_dir / "summary.txt"
 
     _write_csv(rows, csv_path)
+    save_comparison_plots(rows, output_dir)
     json_path.write_text(
         json.dumps(
             {
