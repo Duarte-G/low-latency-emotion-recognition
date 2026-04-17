@@ -10,6 +10,6 @@ opencv-python
 scipy
 scikit-learn
 Pillow
-mediapipe
+mediapipe==0.10.33
 tqdm
 seaborn
