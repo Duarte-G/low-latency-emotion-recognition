@@ -37,6 +37,7 @@ def pixels_to_image(pixel_string: str, size: tuple[int, int] = (48, 48)) -> np.n
 def row_to_rgb(row: pd.Series) -> np.ndarray:
     image_path = row.get("image_path")
     if isinstance(image_path, str) and image_path.strip():
+        image_path = image_path.replace("\\", "/")
         image_bgr = cv2.imread(image_path)
         if image_bgr is None:
             raise FileNotFoundError(f"Nao foi possivel abrir a imagem: {image_path}")
