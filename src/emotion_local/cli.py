@@ -83,7 +83,7 @@ def _add_common_data_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_train_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--num-workers", type=int, default=4)
