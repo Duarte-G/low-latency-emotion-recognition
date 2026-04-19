@@ -158,17 +158,15 @@ def build_training_components(
     class_weights = compute_class_weight("balanced", classes=classes, y=train_df["emotion"].values)
     class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32, device=device)
 
-    criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
+    criterion = nn.CrossEntropyLoss(weight=class_weights_tensor, label_smoothing=train_config.label_smoothing)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=train_config.learning_rate,
         weight_decay=train_config.weight_decay,
     )
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        mode="max",
-        patience=train_config.scheduler_patience,
-        factor=train_config.scheduler_factor,
+        T_max=train_config.num_epochs,
     )
     return device, model, criterion, optimizer, scheduler
 
@@ -249,6 +247,7 @@ def train_pipeline(
     scaler = torch.amp.GradScaler("cuda", enabled=True) if use_scaler else None
     best_val_acc = 0.0
     best_metrics: dict[str, float] = {}
+    epochs_no_improve = 0
     history = {
         "train_loss": [],
         "train_accuracy": [],
@@ -271,7 +270,7 @@ def train_pipeline(
             model, loaders["train"], criterion, device, training=True, amp_enabled=amp_enabled, amp_dtype=amp_dtype_torch, optimizer=optimizer, scaler=scaler
         )
         val_metrics = run_epoch(model, loaders["val"], criterion, device, training=False, amp_enabled=amp_enabled, amp_dtype=amp_dtype_torch)
-        scheduler.step(val_metrics["accuracy"])
+        scheduler.step()
 
         history["train_loss"].append(train_metrics["loss"])
         history["train_accuracy"].append(train_metrics["accuracy"])
@@ -280,8 +279,10 @@ def train_pipeline(
         history["val_accuracy"].append(val_metrics["accuracy"])
         history["val_f1"].append(val_metrics["f1"])
 
-        if val_metrics["accuracy"] > best_val_acc:
+        improved = val_metrics["accuracy"] > best_val_acc
+        if improved:
             best_val_acc = val_metrics["accuracy"]
+            epochs_no_improve = 0
             best_metrics = {
                 "val_accuracy": val_metrics["accuracy"],
                 "val_f1": val_metrics["f1"],
@@ -329,6 +330,16 @@ def train_pipeline(
             f"val_loss={val_metrics['loss']:.4f} val_acc={val_metrics['accuracy']:.2f}% val_f1={val_metrics['f1']:.4f} | "
             f"{duration:.1f}s"
         )
+
+        if not improved:
+            epochs_no_improve += 1
+
+        if epochs_no_improve >= train_config.early_stopping_patience:
+            print(
+                f"Early stopping na época {epoch + 1} — "
+                f"{train_config.early_stopping_patience} épocas consecutivas sem melhora na val_accuracy."
+            )
+            break
 
     if checkpoint_path.exists():
         best_checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)

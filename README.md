@@ -25,6 +25,14 @@ Versao local e modular do notebook utilizado em outra versão, preparada para:
 pip install -r requirements.txt
 ```
 
+Se voce quiser executar como pacote com `python -m emotion_local ...`, instale tambem o projeto em modo editavel:
+
+```bash
+python3 -m pip install -e .
+```
+
+Sem essa instalacao, como o projeto usa layout `src/`, rode a CLI direto do codigo-fonte com `python3 -m src.emotion_local.cli ...` ou prefixe `PYTHONPATH=src`.
+
 Para usar uma GPU, deve ser instalado uma build do PyTorch com CUDA. Se `torch.cuda.is_available()` retornar `False`, o treino vai cair para CPU.
 
 ## Exemplo de uso
@@ -97,6 +105,12 @@ Benchmark completo direto pela CLI:
 
 ```bash
 python -m src.emotion_local.cli benchmark
+```
+
+Ou, se o projeto estiver instalado com `python3 -m pip install -e .`:
+
+```bash
+python3 -m emotion_local benchmark
 ```
 
 Exemplos diretos:

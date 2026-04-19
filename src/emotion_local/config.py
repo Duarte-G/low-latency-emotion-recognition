@@ -52,7 +52,7 @@ class EmotionConfig:
 @dataclass(slots=True)
 class TrainConfig:
     batch_size: int = 32
-    num_epochs: int = 10
+    num_epochs: int = 20
     learning_rate: float = 1e-4
     weight_decay: float = 1e-4
     num_workers: int = 4
@@ -65,6 +65,8 @@ class TrainConfig:
     amp_dtype: str = "bfloat16"
     scheduler_patience: int = 2
     scheduler_factor: float = 0.5
+    label_smoothing: float = 0.1
+    early_stopping_patience: int = 4
     device: str = "auto"
     use_landmarks: bool = False
     landmark_dim: int = 936
