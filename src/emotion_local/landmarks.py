@@ -9,7 +9,7 @@ import pandas as pd
 
 from .data import row_to_rgb
 from .face_detection import FaceCropper
-from .mediapipe_runtime import create_mp_image, landmarks_to_xy_array, load_mediapipe_tasks_context
+from .mediapipe_runtime import create_mp_image, landmarks_to_xy_array, load_mediapipe_tasks_context, mediapipe_import_supported
 
 
 class FaceLandmarkExtractor:
@@ -24,12 +24,28 @@ class FaceLandmarkExtractor:
         if self._backend is not None:
             return
 
-        try:
-            import mediapipe as mp
+        if mediapipe_import_supported():
+            try:
+                import mediapipe as mp
 
-            solutions = getattr(mp, "solutions", None)
-            if solutions is not None and hasattr(solutions, "face_mesh"):
-                self._extractor = solutions.face_mesh.FaceMesh(
+                solutions = getattr(mp, "solutions", None)
+                if solutions is not None and hasattr(solutions, "face_mesh"):
+                    self._extractor = solutions.face_mesh.FaceMesh(
+                        static_image_mode=True,
+                        refine_landmarks=False,
+                        max_num_faces=1,
+                        min_detection_confidence=self.min_detection_confidence,
+                        min_tracking_confidence=0.5,
+                    )
+                    self._backend = "mediapipe_face_mesh"
+                    return
+            except Exception:
+                pass
+
+            try:
+                from mediapipe.python.solutions import face_mesh as mp_face_mesh
+
+                self._extractor = mp_face_mesh.FaceMesh(
                     static_image_mode=True,
                     refine_landmarks=False,
                     max_num_faces=1,
@@ -38,23 +54,8 @@ class FaceLandmarkExtractor:
                 )
                 self._backend = "mediapipe_face_mesh"
                 return
-        except Exception:
-            pass
-
-        try:
-            from mediapipe.python.solutions import face_mesh as mp_face_mesh
-
-            self._extractor = mp_face_mesh.FaceMesh(
-                static_image_mode=True,
-                refine_landmarks=False,
-                max_num_faces=1,
-                min_detection_confidence=self.min_detection_confidence,
-                min_tracking_confidence=0.5,
-            )
-            self._backend = "mediapipe_face_mesh"
-            return
-        except Exception:
-            pass
+            except Exception:
+                pass
 
         tasks_context = load_mediapipe_tasks_context()
         if tasks_context is not None:

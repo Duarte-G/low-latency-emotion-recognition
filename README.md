@@ -73,6 +73,39 @@ Predizer webcam:
 python -m src.emotion_local.cli webcam --checkpoint artifacts/best_emotion_model.pt --device auto
 ```
 
+## Servidor para Unity
+
+O comando `serve` sobe uma API HTTP simples para integrar o modelo com a Unity. A ideia e:
+
+- a Unity captura a imagem da camera
+- envia essa imagem para o endpoint `POST /predict`
+- o servidor roda a inferencia
+- devolve emocao, confianca e probabilidades
+
+Para iniciar o servidor:
+
+```bash
+python -m src.emotion_local.cli serve --checkpoint artifacts/best_emotion_model.pt --host 0.0.0.0 --port 5000 --device auto
+```
+
+Se voce estiver usando um checkpoint salvo dentro de `results/`, use o caminho completo:
+
+```bash
+python -m src.emotion_local.cli serve --checkpoint results/caminho/best_emotion_model.pt --host 0.0.0.0 --port 5000 --device auto
+```
+
+Endpoints principais:
+
+- `GET /health`: informa se o servidor esta de pe e mostra device e labels carregadas
+- `GET /emotion`: retorna a ultima emocao processada
+- `POST /predict`: recebe uma imagem no campo `image` e retorna a predicao atual
+
+Exemplo rapido de teste local:
+
+```bash
+curl http://127.0.0.1:5000/health
+```
+
 ## Observacoes
 
 - O notebook original dependia de Colab, `kagglehub` e upload manual. Essa versao usa arquivos locais.

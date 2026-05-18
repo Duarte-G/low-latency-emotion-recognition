@@ -35,7 +35,19 @@ def resolve_face_landmarker_model_path() -> Path | None:
     return None
 
 
+def mediapipe_import_supported() -> bool:
+    major_str = str(np.__version__).split(".", maxsplit=1)[0]
+    try:
+        major = int(major_str)
+    except ValueError:
+        return True
+    return major < 2
+
+
 def load_mediapipe_tasks_context() -> MediaPipeTasksContext | None:
+    if not mediapipe_import_supported():
+        return None
+
     model_path = resolve_face_landmarker_model_path()
     if model_path is None:
         return None

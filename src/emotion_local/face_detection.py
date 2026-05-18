@@ -6,7 +6,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .mediapipe_runtime import bbox_from_landmarks, create_mp_image, load_mediapipe_tasks_context
+from .mediapipe_runtime import bbox_from_landmarks, create_mp_image, load_mediapipe_tasks_context, mediapipe_import_supported
 
 
 @dataclass(slots=True)
@@ -27,31 +27,32 @@ class FaceCropper:
         if self._backend is not None:
             return
 
-        try:
-            import mediapipe as mp
+        if mediapipe_import_supported():
+            try:
+                import mediapipe as mp
 
-            solutions = getattr(mp, "solutions", None)
-            if solutions is not None and hasattr(solutions, "face_detection"):
-                self._detector = solutions.face_detection.FaceDetection(
+                solutions = getattr(mp, "solutions", None)
+                if solutions is not None and hasattr(solutions, "face_detection"):
+                    self._detector = solutions.face_detection.FaceDetection(
+                        model_selection=0,
+                        min_detection_confidence=self.min_detection_confidence,
+                    )
+                    self._backend = "mediapipe"
+                    return
+            except Exception:
+                pass
+
+            try:
+                from mediapipe.python.solutions import face_detection as mp_face_detection
+
+                self._detector = mp_face_detection.FaceDetection(
                     model_selection=0,
                     min_detection_confidence=self.min_detection_confidence,
                 )
                 self._backend = "mediapipe"
                 return
-        except Exception:
-            pass
-
-        try:
-            from mediapipe.python.solutions import face_detection as mp_face_detection
-
-            self._detector = mp_face_detection.FaceDetection(
-                model_selection=0,
-                min_detection_confidence=self.min_detection_confidence,
-            )
-            self._backend = "mediapipe"
-            return
-        except Exception:
-            pass
+            except Exception:
+                pass
 
         tasks_context = load_mediapipe_tasks_context()
         if tasks_context is not None:
@@ -144,10 +145,13 @@ class FaceCropper:
         return self._backend
 
     def __del__(self) -> None:
-        detector = self._detector
-        if hasattr(detector, "close"):
-            detector.close()
-        elif isinstance(detector, dict):
-            landmarker = detector.get("landmarker")
-            if hasattr(landmarker, "close"):
-                landmarker.close()
+        try:
+            detector = self._detector
+            if hasattr(detector, "close"):
+                detector.close()
+            elif isinstance(detector, dict):
+                landmarker = detector.get("landmarker")
+                if hasattr(landmarker, "close"):
+                    landmarker.close()
+        except Exception:
+            pass

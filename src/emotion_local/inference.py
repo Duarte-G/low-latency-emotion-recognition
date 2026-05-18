@@ -107,6 +107,8 @@ def run_webcam(checkpoint_path: Path, camera_index: int = 0, device: str = "auto
 
     window_name = "Emotion Detection Webcam"
     print("Pressione 'q' para sair.")
+    gui_available = True
+    warned_headless = False
 
     try:
         while True:
@@ -128,10 +130,32 @@ def run_webcam(checkpoint_path: Path, camera_index: int = 0, device: str = "auto
                 2,
                 cv2.LINE_AA,
             )
-            cv2.imshow(window_name, frame)
-
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
+            if gui_available:
+                try:
+                    cv2.imshow(window_name, frame)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        break
+                except cv2.error:
+                    gui_available = False
+                    if not warned_headless:
+                        print(
+                            "OpenCV sem suporte a janelas detectado. "
+                            "Continuando webcam sem preview; interrompa com Ctrl+C.",
+                            flush=True,
+                        )
+                        warned_headless = True
+            else:
+                if not warned_headless:
+                    print(
+                        "OpenCV sem suporte a janelas detectado. "
+                        "Continuando webcam sem preview; interrompa com Ctrl+C.",
+                        flush=True,
+                    )
+                    warned_headless = True
     finally:
         capture.release()
-        cv2.destroyAllWindows()
+        if gui_available:
+            try:
+                cv2.destroyAllWindows()
+            except cv2.error:
+                pass

@@ -10,6 +10,16 @@ from flask import Flask, jsonify, request
 from .inference import EmotionPredictor
 
 
+def _to_python_bbox(bbox_xyxy):
+    if bbox_xyxy is None:
+        return None
+    return [int(value) for value in bbox_xyxy]
+
+
+def _to_python_probabilities(probabilities: dict[str, object]) -> dict[str, float]:
+    return {str(label): float(value) for label, value in probabilities.items()}
+
+
 def create_app(checkpoint_path: Path, device: str = "auto") -> Flask:
     app = Flask(__name__)
     predictor = EmotionPredictor(checkpoint_path=checkpoint_path, device=device)
@@ -71,8 +81,8 @@ def create_app(checkpoint_path: Path, device: str = "auto") -> Flask:
                 "emotion": result["label"],
                 "confidence": round(float(result["confidence"]), 4),
                 "face_detected": True,
-                "bbox_xyxy": result.get("bbox_xyxy"),
-                "probabilities": result.get("probabilities", {}),
+                "bbox_xyxy": _to_python_bbox(result.get("bbox_xyxy")),
+                "probabilities": _to_python_probabilities(result.get("probabilities", {})),
             }
 
         with emotion_lock:
