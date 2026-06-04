@@ -1,22 +1,50 @@
 # Emotion Detection in a Game Engine
 
-Versao local e modular do notebook utilizado em outra versão, preparada para:
+Sistema de **reconhecimento de emoções faciais em tempo real** que classifica 4 emoções
+(**Angry, Happy, Sad, Neutral**) a partir de imagens de câmera e disponibiliza o resultado
+para uma aplicação em **Unity** via servidor HTTP. O classificador é uma **EfficientNet-B0**
+(transfer learning a partir da ImageNet), com detecção/recorte facial e extração opcional de
+landmarks via **MediaPipe**. É a versão local e modular de um notebook anterior (que dependia
+do Google Colab).
 
-- preprocessar o dataset em formato FER 
-- balancear classes com augmentation
-- recortar faces com MediaPipe
-- treinar EfficientNet-B0
-- avaliar checkpoint salvo
-- rodar inferencia em imagem local
+O projeto cobre todo o ciclo, do experimento à aplicação:
+
+- preprocessar e padronizar dois datasets (**FER-2013** e **AffectNet**) para 4 classes
+- balancear classes do FER-2013 com augmentation (apenas no treino)
+- recortar faces com MediaPipe (com fallback OpenCV Haar Cascade)
+- extrair e cachear landmarks faciais (vetor de 936 dimensões) — opcional
+- treinar a EfficientNet-B0 (com fusão opcional imagem + landmarks)
+- avaliar checkpoints e rodar um benchmark de 16 configurações
+- rodar inferência em imagem, webcam ou via API HTTP para a Unity
+
+## Arquitetura
+
+Arquitetura do modelo (backbone EfficientNet-B0 + cabeça de classificação com fusão de landmarks):
+
+<!-- Coloque aqui a imagem da arquitetura do modelo (a mesma usada no TCC). -->
+![Arquitetura do modelo](docs/images/arquitetura_efficientnet.png)
+
+Arquitetura do sistema (cliente Unity ↔ API Flask):
+
+<!-- Coloque aqui o diagrama de fluxo cliente-servidor (o mesmo usado no TCC). -->
+![Arquitetura do sistema](docs/images/arquitetura_sistema.jpg)
+
 
 ## Estrutura
 
-- `src/emotion_local/data.py`: leitura, filtro, balanceamento e splits
+- `src/emotion_local/config.py`: dataclasses de configuracao e mapeamento das 4 classes
+- `src/emotion_local/data.py`: leitura, filtro, balanceamento e splits (FER-2013 e AffectNet)
 - `src/emotion_local/dataset.py`: `Dataset` PyTorch e transforms
-- `src/emotion_local/model.py`: EfficientNet-B0 e selecao de device
+- `src/emotion_local/experiments.py`: montagem das configuracoes de experimento
+- `src/emotion_local/face_detection.py`: deteccao e recorte facial (MediaPipe + fallback Haar)
 - `src/emotion_local/landmarks.py`: extracao e cache de landmarks do MediaPipe
-- `src/emotion_local/training.py`: dataloaders, treino e avaliacao
-- `src/emotion_local/inference.py`: predicao em imagem
+- `src/emotion_local/mediapipe_runtime.py`: compatibilidade do MediaPipe (API Tasks / modelo .task)
+- `src/emotion_local/model.py`: EfficientNet-B0, fusao com landmarks e selecao de device
+- `src/emotion_local/training.py`: dataloaders, treino, early stopping e avaliacao
+- `src/emotion_local/results.py`: graficos, matriz de confusao e relatorios por execucao
+- `src/emotion_local/comparison.py`: consolidacao comparativa de varias execucoes
+- `src/emotion_local/inference.py`: predicao em imagem/quadro e modo webcam
+- `src/emotion_local/server.py`: servidor HTTP (Flask) para a Unity
 - `src/emotion_local/cli.py`: ponto de entrada por linha de comando
 
 ## Instalar dependencias

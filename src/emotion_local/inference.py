@@ -1,3 +1,10 @@
+"""Inferencia em imagem/quadro e modo webcam.
+
+A classe EmotionPredictor reconstroi o modelo a partir do checkpoint, detecta
+a face, extrai landmarks (se o modelo usar) e retorna emocao, confianca e
+probabilidades. run_webcam executa a inferencia ao vivo via OpenCV.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

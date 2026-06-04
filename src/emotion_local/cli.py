@@ -1,3 +1,9 @@
+"""Interface de linha de comando do projeto.
+
+Define os comandos: prepare, train, evaluate, predict, webcam, serve,
+benchmark, wizard e compare.
+"""
+
 from __future__ import annotations
 
 import argparse

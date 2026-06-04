@@ -1,3 +1,10 @@
+"""Extracao e cache em disco dos landmarks faciais.
+
+Converte 468 landmarks do MediaPipe (FaceMesh/FaceLandmarker) em um vetor de
+936 dimensoes (468 pontos x 2 coordenadas) e o armazena em .npy para evitar
+recalculo entre execucoes.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

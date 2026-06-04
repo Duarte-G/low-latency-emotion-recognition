@@ -1,3 +1,10 @@
+"""Dataset PyTorch (EmotionDataset) e transforms de pre-processamento.
+
+Replica, no treino, o mesmo pipeline da inferencia: recorte facial opcional,
+redimensionamento para 224x224, augmentation (apenas no treino) e normalizacao
+ImageNet. Suporta o vetor opcional de landmarks por amostra.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

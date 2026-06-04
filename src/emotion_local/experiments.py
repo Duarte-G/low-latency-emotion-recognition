@@ -1,3 +1,9 @@
+"""Construcao das configuracoes de experimento.
+
+Resolve os caminhos padrao dos datasets e monta o ExperimentConfig
+(dataset de treino, modo de teste e dataset de teste).
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

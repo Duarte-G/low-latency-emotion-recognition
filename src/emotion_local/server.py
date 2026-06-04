@@ -1,3 +1,9 @@
+"""Servidor HTTP (Flask) para integracao com a Unity.
+
+Expoe os endpoints /health (status), /emotion (ultima emocao processada) e
+/predict (recebe uma imagem e retorna emocao, confianca, bbox e probabilidades).
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

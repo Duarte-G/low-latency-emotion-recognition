@@ -1,3 +1,10 @@
+"""Consolidacao comparativa de multiplas execucoes.
+
+Varre results/, le os JSONs de cada run e gera tabela (CSV), dados (JSON),
+resumo (summary.txt) e graficos comparativos (acuracia/F1, F1 por classe e
+heatmaps de crop x landmarks).
+"""
+
 from __future__ import annotations
 
 from datetime import datetime

@@ -1,3 +1,10 @@
+"""Modelo de classificacao de emocoes (EmotionClassifier).
+
+EfficientNet-B0 (pre-treinada na ImageNet) com cabeca customizada. Quando
+use_landmarks=True, adiciona um ramo de landmarks e funde as features de
+imagem e geometricas antes do classificador. Inclui o utilitario de device.
+"""
+
 from __future__ import annotations
 
 import warnings

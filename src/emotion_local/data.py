@@ -1,3 +1,9 @@
+"""Leitura, filtragem, balanceamento e divisao (splits) dos datasets.
+
+Trata o FER-2013 (CSV de pixels) e o AffectNet (imagens .jpg em pastas por
+classe), padronizando ambos para as 4 classes de emocao do projeto.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

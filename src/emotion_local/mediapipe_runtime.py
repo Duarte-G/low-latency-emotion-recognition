@@ -1,3 +1,10 @@
+"""Camada de compatibilidade do MediaPipe.
+
+Detecta o suporte conforme a versao do NumPy e carrega a API Tasks
+(FaceLandmarker) a partir do modelo .task embarcado em assets/mediapipe/.
+Inclui utilitarios para conversao de imagem e de landmarks.
+"""
+
 from __future__ import annotations
 
 import os

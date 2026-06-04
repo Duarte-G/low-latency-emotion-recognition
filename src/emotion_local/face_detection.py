@@ -1,3 +1,10 @@
+"""Deteccao e recorte facial (FaceCropper).
+
+A escolha do backend e feita em cascata: MediaPipe FaceDetection ->
+MediaPipe Tasks FaceLandmarker -> OpenCV Haar Cascade. Quando nenhuma face
+e detectada, a imagem original e mantida (degradacao graciosa).
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

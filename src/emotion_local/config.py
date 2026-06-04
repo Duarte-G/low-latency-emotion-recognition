@@ -1,3 +1,9 @@
+"""Configuracoes (dataclasses) do projeto.
+
+Concentra os parametros de datasets, experimento, pre-processamento e treino,
+alem do mapeamento das 4 classes de emocao usado por FER-2013 e AffectNet.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -63,8 +69,6 @@ class TrainConfig:
     save_name: str = "best_emotion_model.pt"
     use_amp: bool = True
     amp_dtype: str = "bfloat16"
-    scheduler_patience: int = 2
-    scheduler_factor: float = 0.5
     label_smoothing: float = 0.1
     early_stopping_patience: int = 4
     device: str = "auto"

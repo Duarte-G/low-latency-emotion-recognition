@@ -1,3 +1,10 @@
+"""Pipeline de treinamento e avaliacao.
+
+Monta os dataloaders (com cache de landmarks), executa o laco de treino com
+AMP, seleciona o melhor checkpoint por val_accuracy (com early stopping) e
+avalia o modelo no conjunto de teste, salvando metricas e artefatos.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -35,6 +42,15 @@ def _ensure_landmark_cache(
     emotion_config: EmotionConfig,
     train_config: TrainConfig,
 ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
+    """Garante o cache em disco dos landmarks de cada split.
+
+    Os vetores de landmarks (936 dimensoes por amostra) sao caros de extrair,
+    entao sao calculados uma unica vez e salvos em
+    `landmarks_<facecrop|nocrop>/<split>_landmarks.npy`. Em execucoes seguintes,
+    o cache e reutilizado se existir e tiver o formato esperado; caso contrario,
+    e recalculado. Assim, multiplas execucoes (ex.: o benchmark) nao reprocessam
+    o MediaPipe a cada vez.
+    """
     crop_mode = "facecrop" if emotion_config.use_face_crop else "nocrop"
     landmark_dir = artifact_dir / f"landmarks_{crop_mode}"
     landmark_arrays: dict[str, np.ndarray] = {}

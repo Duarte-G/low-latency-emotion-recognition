@@ -1,3 +1,10 @@
+"""Geracao de artefatos de cada execucao.
+
+Define os nomes de diretorios (artifact/run), salva os graficos de acuracia,
+perda e F1, a matriz de confusao e os arquivos JSON/CSV de metricas e
+metadados em results/<timestamp>_<descricao>/.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict
