@@ -1,0 +1,15 @@
+# RTX 5070 (Blackwell) requer PyTorch com CUDA 12.8:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+# Para CPU ou outras GPUs:
+#   pip install torch torchvision
+numpy<2.3
+pandas
+matplotlib
+flask
+opencv-python
+scipy
+scikit-learn
+Pillow
+mediapipe==0.10.33
+tqdm
+seaborn
