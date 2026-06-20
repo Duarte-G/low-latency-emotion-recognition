@@ -1,6 +1,6 @@
 # Emotion Detection in a Game Engine
 
-Sistema de **reconhecimento de emoções faciais em tempo real** que classifica 4 emoções
+Sistema de **reconhecimento de emoções faciais com baixa latência** que classifica 4 emoções
 (**Angry, Happy, Sad, Neutral**) a partir de imagens de câmera e disponibiliza o resultado
 para uma aplicação em **Unity** via servidor HTTP. O classificador é uma **EfficientNet-B0**
 (transfer learning a partir da ImageNet), com detecção/recorte facial e extração opcional de
