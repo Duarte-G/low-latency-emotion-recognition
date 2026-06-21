@@ -8,3 +8,4 @@ best_emotion_model/
 .pycache_tmp/
 venv/
 código antigo/
+.claude/

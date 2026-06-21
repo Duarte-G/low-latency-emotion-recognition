@@ -21,12 +21,10 @@ O projeto cobre todo o ciclo, do experimento à aplicação:
 
 Arquitetura do modelo (backbone EfficientNet-B0 + cabeça de classificação com fusão de landmarks):
 
-<!-- Coloque aqui a imagem da arquitetura do modelo (a mesma usada no TCC). -->
 ![Arquitetura do modelo](docs/images/arquitetura_efficientnet.png)
 
 Arquitetura do sistema (cliente Unity ↔ API Flask):
 
-<!-- Coloque aqui o diagrama de fluxo cliente-servidor (o mesmo usado no TCC). -->
 ![Arquitetura do sistema](docs/images/arquitetura_sistema.jpg)
 
 
@@ -276,3 +274,7 @@ Servidor para Unity:
 - `GET /health`: status do servidor
 - `GET /emotion`: ultima emocao processada
 - `POST /predict`: recebe uma imagem no campo `image` e retorna emocao, confianca e probabilidades
+
+## Componentes Principais da Aplicação Unity
+
+Os principais componentes desenvolvidos para a aplicação foram o script `Unity/Assets/Scripts/EmotionDetectionSystem.cs`, responsável pela comunicação entre a Unity e a API de reconhecimento de emoções, o script `Unity/Assets/Scripts/OpenDoor.cs`, utilizado para controlar a interação e abertura das portas do ambiente virtual, e o modelo treinado `Unity/Assets/Model/best_emotion_model.pt`, que realiza a classificação das emoções faciais utilizando o melhor modelo treinado.
